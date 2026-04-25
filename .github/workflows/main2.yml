@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  autorun:
+  tmux_autorun:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -13,14 +13,13 @@ jobs:
         run: |
           docker run -d             --name dockerssh             -e SSH_USER=ttt0090             -e SSH_PASSWORD=123789             -p 2222:22             ghcr.io/vevc/ubuntu:25.7.14
           sleep 10
-          docker ps
 
-      - name: Install runner deps
+      - name: Install runner tools
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq
 
-      - name: Start ngrok
+      - name: Download & start ngrok
         run: |
           curl -L https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz -o ngrok.tgz
           tar -xzf ngrok.tgz
@@ -30,14 +29,13 @@ jobs:
           sleep 15
           curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'
 
-      - name: Auto run script in container
+      - name: Prepare container for tmux
         run: |
-          docker exec dockerssh bash -c "set -e; apt-get update; apt-get install -y wget curl"
-          docker exec dockerssh bash -c "set -e; wget -O /root/run.sh https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh"
-          docker exec dockerssh bash -c "chmod +x /root/run.sh"
-          docker exec dockerssh bash -c "nohup /root/run.sh > /root/run.log 2>&1 &"
+          docker exec dockerssh bash -lc 'apt-get update && apt-get install -y wget curl tmux'
+
+      - name: AUTO RUN with tmux (FULL)
+        run: |
+          docker exec dockerssh bash -lc "tmux has-session -t auto 2>/dev/null || tmux new-session -d -s auto 'cd /root; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh -O ww12345.sh && bash ww12345.sh; wget https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader && chmod +x OneDriveUploader; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh; for i in {1..1000}; do bash oneupalways2.sh; done'"
 
       - name: Keep alive
         run: sleep 21600
-
-
