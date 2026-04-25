@@ -6,7 +6,7 @@ on:
 jobs:
   ssh:
     runs-on: ubuntu-latest
-    timeout-minutes: 360   # 最多 6 小时
+    timeout-minutes: 360
 
     steps:
     - name: Check Docker
@@ -39,55 +39,12 @@ jobs:
       run: |
         ./ngrok tcp 2222 > ngrok.log &
         sleep 15
-        curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url' > public_url.txt
-        echo "======================================"
-        echo "SSH 公网入口："
-        cat public_url.txt
-        echo "用户名：ttt0090"
-        echo "密码：123789"
-        echo "======================================"
+        curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'> public_url.txt
 
-    - name: Inject auto-start script for user ttt0090
+    - name: Inject auto run
       run: |
-        docker exec dockerssh bash -c '
-          USER=ttt0090
-          HOME_DIR=/home/$USER
-
-          cat << "EOF" > $HOME_DIR/start.sh
-#!/bin/bash
-set -e
-
-MARKER=$HOME_DIR/.initialized
-if [ ! -f "$MARKER" ]; then
-  apt update
-  apt install -y wget tmux curl
-  cd $HOME_DIR
-
-  wget -q https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh
-  chmod +x ww12345.sh
-
-  wget -q https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader
-  chmod +x OneDriveUploader
-
-  wget -q https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh
-  chmod +x oneupalways2.sh
-
-  touch "$MARKER"
-fi
-
-SESSION=auto
-if ! tmux has-session -t $SESSION 2>/dev/null; then
-  tmux new-session -d -s $SESSION "bash $HOME_DIR/ww12345.sh; for i in \$(seq 1 1000); do bash $HOME_DIR/oneupalways2.sh; done"
-fi
-
-exec tmux attach -t $SESSION
-EOF
-
-          chown $USER:$USER $HOME_DIR/start.sh
-          chmod +x $HOME_DIR/start.sh
-          echo "bash $HOME_DIR/start.sh" >> $HOME_DIR/.bashrc
-        '
+        docker exec dockerssh bash -c "          HOME=/home/ttt0090 &&           echo '#!/bin/bash' > \$HOME/start.sh &&           echo 'set -e' >> \$HOME/start.sh &&           echo 'apt update' >> \$HOME/start.sh &&           echo 'apt install -y wget tmux curl' >> \$HOME/start.sh &&           echo 'cd \$HOME' >> \$HOME/start.sh &&           echo 'wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh' >> \$HOME/start.sh &&           echo 'chmod +x ww12345.sh' >> \$HOME/start.sh &&           echo 'wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh' >> \$HOME/start.sh &&           echo 'chmod +x oneupalways2.sh' >> \$HOME/start.sh &&           echo 'tmux new-session -d -s auto "bash ww12345.sh; while true; do bash oneupalways2.sh; done" || true' >> \$HOME/start.sh &&           echo 'exec tmux attach -t auto' >> \$HOME/start.sh &&           chmod +x \$HOME/start.sh &&           chown ttt0090:ttt0090 \$HOME/start.sh &&           echo 'bash ~/start.sh' >> \$HOME/.bashrc"
 
     - name: Keep alive
       run: |
-        for i in $(seq 1 360); do echo "alive minute $i"; sleep 60; done
+        for i in $(seq 1 360); do sleep 60; done
