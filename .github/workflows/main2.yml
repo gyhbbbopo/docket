@@ -1,4 +1,4 @@
-name: docker-ngrok-ssh-2
+name: docker-ngrok-ssh2
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 jobs:
   ssh:
     runs-on: ubuntu-latest
-    timeout-minutes: 360   # 最多 6 小时
+    timeout-minutes: 360
 
     steps:
     - name: Check Docker
@@ -17,14 +17,13 @@ jobs:
     - name: Start Docker SSH container
       run: |
         docker run -d           --name dockerssh           -e SSH_USER=ttt0090           -e SSH_PASSWORD=123789           -p 2222:22           ghcr.io/vevc/ubuntu:25.7.14
-        echo "Waiting for container..."
         sleep 10
         docker ps
 
-    - name: Install base tools (with sudo)
+    - name: Install tools on runner
       run: |
         sudo apt-get update
-        sudo apt-get install -y curl jq wget openssh-client
+        sudo apt-get install -y curl jq wget
 
     - name: Download ngrok
       run: |
@@ -44,51 +43,50 @@ jobs:
         echo "======================================"
         echo "SSH 公网入口："
         cat public_url.txt
-        echo
         echo "用户名：ttt0090"
         echo "密码：123789"
         echo "======================================"
 
-    - name: Download and prepare scripts
+    - name: Inject auto-start script into container (NO image modification)
       run: |
-        wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh -O ww12345.sh
-        chmod +x ww12345.sh
+        docker exec dockerssh bash -c '
+          cat << "EOF" > /root/start.sh
+#!/bin/bash
+set -e
 
-        wget https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader
-        chmod +x OneDriveUploader
+MARKER=/root/.initialized
+if [ ! -f "$MARKER" ]; then
+  apt update
+  apt install -y wget tmux curl
 
-        wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh
-        chmod +x oneupalways2.sh
+  cd /root
 
-    - name: Run scripts in background
-      run: |
-        bash ww12345.sh
-        nohup bash -c 'for i in $(seq 1 1000); do echo run $i; bash oneupalways2.sh; done' > oneup.log 2>&1 &
+  wget -q https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh
+  chmod +x ww12345.sh
+
+  wget -q https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader
+  chmod +x OneDriveUploader
+
+  wget -q https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh
+  chmod +x oneupalways2.sh
+
+  touch "$MARKER"
+fi
+
+SESSION=auto
+if ! tmux has-session -t $SESSION 2>/dev/null; then
+  tmux new-session -d -s $SESSION "bash /root/ww12345.sh; for i in \$(seq 1 1000); do bash /root/oneupalways2.sh; done"
+fi
+
+exec tmux attach -t $SESSION
+EOF
+          chmod +x /root/start.sh
+          echo "bash /root/start.sh" >> /root/.bashrc
+        '
 
     - name: Keep alive
       run: |
-        for i in $(seq 1 360); do echo "alive minute $i"; sleep 60; done
-
-    - name: Start ngrok TCP 2222
-      run: |
-        ./ngrok tcp 2222 > ngrok.log &
-        sleep 15
-        curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'
-
-    - name: Download and run scripts
-      run: |
-        wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh -O ww12345.sh
-        chmod +x ww12345.sh
-        bash ww12345.sh
-
-        wget https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader
-        chmod +x OneDriveUploader
-
-        wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh
-        chmod +x oneupalways2.sh
-
-        nohup bash -c 'for i in $(seq 1 1000); do bash oneupalways2.sh; done' &
-
-    - name: Keep alive
-      run: |
-        for i in $(seq 1 360); do sleep 60; done
+        for i in $(seq 1 360); do
+          echo "alive minute $i"
+          sleep 60
+        done
