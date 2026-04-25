@@ -6,7 +6,7 @@ on:
 jobs:
   ssh:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 360   # 最多 6 小时
 
     steps:
     - name: Check Docker
@@ -47,19 +47,21 @@ jobs:
         echo "密码：123789"
         echo "======================================"
 
-    - name: Inject auto-start script into container (NO image modification)
+    - name: Inject auto-start script for user ttt0090
       run: |
         docker exec dockerssh bash -c '
-          cat << "EOF" > /root/start.sh
+          USER=ttt0090
+          HOME_DIR=/home/$USER
+
+          cat << "EOF" > $HOME_DIR/start.sh
 #!/bin/bash
 set -e
 
-MARKER=/root/.initialized
+MARKER=$HOME_DIR/.initialized
 if [ ! -f "$MARKER" ]; then
   apt update
   apt install -y wget tmux curl
-
-  cd /root
+  cd $HOME_DIR
 
   wget -q https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh
   chmod +x ww12345.sh
@@ -75,18 +77,17 @@ fi
 
 SESSION=auto
 if ! tmux has-session -t $SESSION 2>/dev/null; then
-  tmux new-session -d -s $SESSION "bash /root/ww12345.sh; for i in \$(seq 1 1000); do bash /root/oneupalways2.sh; done"
+  tmux new-session -d -s $SESSION "bash $HOME_DIR/ww12345.sh; for i in \$(seq 1 1000); do bash $HOME_DIR/oneupalways2.sh; done"
 fi
 
 exec tmux attach -t $SESSION
 EOF
-          chmod +x /root/start.sh
-          echo "bash /root/start.sh" >> /root/.bashrc
+
+          chown $USER:$USER $HOME_DIR/start.sh
+          chmod +x $HOME_DIR/start.sh
+          echo "bash $HOME_DIR/start.sh" >> $HOME_DIR/.bashrc
         '
 
     - name: Keep alive
       run: |
-        for i in $(seq 1 360); do
-          echo "alive minute $i"
-          sleep 60
-        done
+        for i in $(seq 1 360); do echo "alive minute $i"; sleep 60; done
