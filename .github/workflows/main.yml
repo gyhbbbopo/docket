@@ -1,2 +1,54 @@
+name: Docker SSH Test
 
-name: Docker SSH Test on: push: workflow_dispatch: jobs: docker-ssh: runs-on: ubuntu-latest services: ubuntu_ssh: image: ghcr.io/vevc/ubuntu:25.7.14 env: SSH_USER: ttt0090 SSH_PASSWORD: 123789 ports: - 2222:22 options: >- --privileged --name ubuntu_ssh --health-cmd="ps aux | grep sshd || exit 1" --health-interval=10s --health-timeout=5s --health-retries=5 steps: - name: Checkout uses: actions/checkout@v4 - name: Install SSH client run: | sudo apt-get update sudo apt-get install -y sshpass - name: Wait for SSH service run: | for i in {1..10}; do nc -z 127.0.0.1 2222 && echo "SSH is up" && exit 0 echo "Waiting SSH..." sleep 2 done exit 1 - name: SSH into Docker container env: SSH_USER: ttt0090 SSH_PASSWORD: 123789 run: | sshpass -p "$SSH_PASSWORD" \ ssh -o StrictHostKeyChecking=no \ -p 2222 \ $SSH_USER@127.0.0.1 << 'EOF' whoami pwd ls -lah /home/ttt0090 echo "SSH into container success" EOF
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  docker-ssh:
+    runs-on: ubuntu-latest
+
+    services:
+      ubuntu_ssh:
+        image: ghcr.io/vevc/ubuntu:25.7.14
+        env:
+          SSH_USER: ttt0090
+          SSH_PASSWORD: 123789
+        ports:
+          - 2222:22
+        options: >-
+          --privileged
+          --name ubuntu_ssh
+          --health-cmd="ps aux | grep sshd || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Wait for SSH service
+        run: |
+          for i in {1..10}; do
+            nc -z 127.0.0.1 2222 && echo "SSH is up" && exit 0
+            echo "Waiting SSH..."
+            sleep 2
+          done
+          exit 1
+
+      - name: SSH into Docker container
+        env:
+          SSH_USER: ttt0090
+          SSH_PASSWORD: 123789
+        run: |
+          sshpass -p "$SSH_PASSWORD" \
+          ssh -o StrictHostKeyChecking=no \
+          -p 2222 \
+          $SSH_USER@127.0.0.1 << 'EOF'
+          
+          whoami
+          pwd
+          ls -lah /home/ttt0090
+          echo "SSH into container success"
+          EOF
