@@ -1,4 +1,4 @@
-name: docker-ngrok-ssh
+name: docker-ngrok-ssh-auto
 
 on:
   workflow_dispatch:
