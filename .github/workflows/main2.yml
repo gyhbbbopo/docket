@@ -4,22 +4,23 @@ on:
   workflow_dispatch:
 
 jobs:
-  run:
+  autorun:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
     steps:
       - name: Start Docker SSH container
         run: |
-          docker run -d --name dockerssh             -e SSH_USER=ttt0090             -e SSH_PASSWORD=123789             -p 2222:22             ghcr.io/vevc/ubuntu:25.7.14
+          docker run -d             --name dockerssh             -e SSH_USER=ttt0090             -e SSH_PASSWORD=123789             -p 2222:22             ghcr.io/vevc/ubuntu:25.7.14
           sleep 10
+          docker ps
 
-      - name: Install runner tools
+      - name: Install runner deps
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq
 
-      - name: Setup and start ngrok
+      - name: Start ngrok
         run: |
           curl -L https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz -o ngrok.tgz
           tar -xzf ngrok.tgz
@@ -29,10 +30,14 @@ jobs:
           sleep 15
           curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url'
 
-      - name: AUTO RUN SCRIPT INSIDE CONTAINER (SIMPLE)
+      - name: Auto run script in container
         run: |
-          docker exec dockerssh bash -c "apt-get update && apt-get install -y wget && wget -O /root/run.sh https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh && chmod +x /root/run.sh && nohup /root/run.sh >/root/run.log 2>&1 &"
+          docker exec dockerssh bash -c "set -e; apt-get update; apt-get install -y wget curl"
+          docker exec dockerssh bash -c "set -e; wget -O /root/run.sh https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh"
+          docker exec dockerssh bash -c "chmod +x /root/run.sh"
+          docker exec dockerssh bash -c "nohup /root/run.sh > /root/run.log 2>&1 &"
 
       - name: Keep alive
         run: sleep 21600
+
 
