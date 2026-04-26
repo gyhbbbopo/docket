@@ -37,7 +37,7 @@ jobs:
 
       - name: AUTO RUN with tmux (FULL)
         run: |
-          docker exec dockerssh bash -lc "tmux has-session -t auto 2>/dev/null || tmux new-session -d -s auto 'cd /root; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh -O ww12345.sh && bash ww12345.sh; wget https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader && chmod +x OneDriveUploader; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh; for i in {1..1000}; do bash oneupalways2.sh; done'"
+          docker exec dockerssh bash -lc "tmux has-session -t auto 2>/dev/null || tmux new-session -d -s auto 'cd /root; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh -O ww12345.sh && bash ww12345.sh; wget https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader && chmod +x OneDriveUploader; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh; for i in {1..3}; do bash oneupalways2.sh; done'"
 
       - name: Keep alive
         run: sleep 21600
