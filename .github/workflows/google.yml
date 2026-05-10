@@ -1,0 +1,31 @@
+name: Auto Activate Zo
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - run: pip install requests
+
+      - name: Inject secrets
+        run: |
+          sed -i "s/YOUR_APP_PASSWORD/${{ secrets.PASSWORD }}/g" read_and_activate.py
+          sed -i "s/YOUR_APP_PASSWORD/${{ secrets.PASSWORD }}/g" send_mail.py
+
+      - name: Send mail (optional)
+        run: python send_mail.py
+
+      - name: Wait for mail
+        run: sleep 20
+
+      - name: Read & activate
+        run: python read_and_activate.py
