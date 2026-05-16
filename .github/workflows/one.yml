@@ -90,7 +90,7 @@ jobs:
               curl -fsSL https://raw.githubusercontent.com/a88wyzz/Alpine-Debian-Ubuntu-Hy2/main/hy2.sh -o /root/hy2.sh
               chmod +x /root/hy2.sh
 
-              echo "开始运行 Hy2 脚本，并自动输入 y、1、1..."
+              echo "开始运行 Hy2 脚本，并自动输入 1、1..."
               echo "----------------------------------------"
 
               # y = 确认进入脚本
