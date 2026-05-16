@@ -2,8 +2,8 @@ name: docker-ngrok-ssh-au
 
 on:
   schedule:
-    # 每周六 UTC 22:00，北京时间周日 06:00
-    - cron: '0 22 * * 6'
+    # 每天 UTC 23:00 触发
+    - cron: '0 23 * * *'
   workflow_dispatch:
 
 jobs:
@@ -48,18 +48,17 @@ jobs:
           NGROK_URL="$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')"
           echo "$NGROK_URL"
 
-          {
-            echo "## Ngrok SSH 地址"
-            echo ""
-            echo '```'
-            echo "$NGROK_URL"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "## Ngrok SSH 地址" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$NGROK_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Prepare container for tmux and Hy2
         run: |
           docker exec dockerssh bash -lc '
             apt-get update
+
             DEBIAN_FRONTEND=noninteractive apt-get install -y \
               wget \
               curl \
@@ -72,17 +71,18 @@ jobs:
               lsof \
               procps
 
-            # Docker 容器没有 systemd，这里创建假的 systemctl，避免安装脚本中断
-            cat > /usr/local/bin/systemctl << "EOF"
-#!/bin/sh
-echo "[fake systemctl] $@" >&2
-exit 0
-EOF
+            mkdir -p /usr/local/bin
+
+            printf "%s\n" \
+              "#!/bin/sh" \
+              "echo [fake systemctl] \$@ >&2" \
+              "exit 0" \
+              > /usr/local/bin/systemctl
+
             chmod +x /usr/local/bin/systemctl
 
-            echo "检查 systemctl："
-            which systemctl
-            systemctl status test || true
+            echo "fake systemctl 已创建："
+            /usr/local/bin/systemctl status test || true
           '
 
       - name: Install Hy2 in Docker and output node link
@@ -115,18 +115,18 @@ EOF
                 echo "1"
 
                 # 等待进入监听端口输入位置
-                sleep 10
+                sleep 45
 
-                # 直接回车，选择 10000-65535 随机端口
+                # 回车，选择 10000-65535 随机端口
                 echo ""
 
-                # 留足安装时间，5分钟
-                sleep 300
+                # 留足安装时间，7分钟
+                sleep 420
 
                 # 查看配置节点链接
                 echo "2"
 
-                sleep 15
+                sleep 20
 
                 # 退出脚本
                 echo "0"
@@ -135,22 +135,10 @@ EOF
               echo "----------------------------------------"
               echo "Hy2 脚本运行结束"
 
-              echo ""
-              echo "尝试手动启动 hysteria 服务..."
-
-              HY_BIN="$(command -v hysteria 2>/dev/null || command -v hysteria2 2>/dev/null || find /usr/local/bin /usr/bin /root -type f $$ -name hysteria -o -name hysteria2 -o -name \"hysteria*\" $$ 2>/dev/null | head -n 1)"
-              HY_CFG="$(find /etc /root -maxdepth 8 -type f $$ -iname \"*.yaml\" -o -iname \"*.yml\" -o -iname \"*.json\" $$ 2>/dev/null | grep -Ei \"hysteria|hy2|config\" | head -n 1)"
-
-              echo "HY_BIN=$HY_BIN"
-              echo "HY_CFG=$HY_CFG"
-
-              if [ -n "$HY_BIN" ] && [ -n "$HY_CFG" ]; then
-                chmod +x "$HY_BIN" 2>/dev/null || true
-                tmux has-session -t hy2 2>/dev/null || tmux new-session -d -s hy2 "$HY_BIN server -c $HY_CFG"
-                echo "已尝试在 tmux hy2 中启动：$HY_BIN server -c $HY_CFG"
-              else
-                echo "未找到 hysteria 二进制或配置文件，跳过手动启动。"
-              fi
+              echo "尝试查找 hysteria 程序和配置文件..."
+              command -v hysteria || true
+              command -v hysteria2 || true
+              find /root /etc /usr/local/bin /usr/bin -maxdepth 8 -iname "*hysteria*" -o -iname "*hy2*" 2>/dev/null || true
             ' || true
 
           echo ""
@@ -193,24 +181,19 @@ EOF
                 -print 2>/dev/null || true
             '
 
-            {
-              echo "## Hy2 节点链接"
-              echo ""
-              echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。"
-              echo ""
-              echo "请查看 Actions 日志里的 Hy2 日志最后 500 行。"
-            } >> "$GITHUB_STEP_SUMMARY"
+            echo "## Hy2 节点链接" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。" >> "$GITHUB_STEP_SUMMARY"
+            echo "请查看 Actions 日志里的 Hy2 日志最后 500 行。" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "识别到的 Hy2 节点链接："
             cat hy2_links.txt
 
-            {
-              echo "## Hy2 节点链接"
-              echo ""
-              echo '```'
-              cat hy2_links.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
+            echo "## Hy2 节点链接" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat hy2_links.txt >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: AUTO RUN with tmux FULL
