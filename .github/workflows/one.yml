@@ -69,14 +69,13 @@ jobs:
               ca-certificates \
               util-linux \
               iproute2 \
-              lsof \
-              expect
+              lsof
           '
 
       - name: Install Hy2 in Docker and output node link
-        timeout-minutes: 60
+        timeout-minutes: 80
         run: |
-          set -e
+          set +e
 
           echo "开始在 Docker 容器中运行 Hy2 脚本..."
 
@@ -84,7 +83,6 @@ jobs:
             -e TERM=xterm \
             -e DEBIAN_FRONTEND=noninteractive \
             dockerssh bash -lc '
-              set +e
               cd /root
               export TERM=xterm
 
@@ -92,132 +90,52 @@ jobs:
               curl -fsSL https://raw.githubusercontent.com/a88wyzz/Alpine-Debian-Ubuntu-Hy2/main/hy2.sh -o /root/hy2.sh
               chmod +x /root/hy2.sh
 
-              echo "生成 expect 自动安装脚本..."
-
-              cat > /root/install_hy2.expect << "EOF"
-#!/usr/bin/expect -f
-set timeout 1800
-log_file -a /root/hy2_install.log
-
-set sent_install 0
-set sent_port 0
-
-spawn bash /root/hy2.sh
-
-expect {
-    -re {请输入数字选择.*$$0-5$$.*:} {
-        if {$sent_install == 0} {
-            send "1\r"
-            set sent_install 1
-        } else {
-            send "0\r"
-        }
-        exp_continue
-    }
-
-    -re {随机端口|回车.*随机|直接回车|默认端口|请输入.*端口|监听端口} {
-        if {$sent_port == 0} {
-            send "\r"
-            set sent_port 1
-        }
-        exp_continue
-    }
-
-    -re {按任意键返回主菜单|任意键} {
-        send "\r"
-        exp_continue
-    }
-
-    timeout {
-        puts "Hy2 安装等待超时，继续后续提取日志。"
-        exit 0
-    }
-
-    eof {
-        exit 0
-    }
-}
-EOF
-
-              chmod +x /root/install_hy2.expect
-
-              echo "开始安装 Hy2：输入 1，然后安装过程中遇到随机端口自动回车..."
+              echo "开始运行 Hy2 脚本..."
+              echo "输入顺序：1 -> 回车随机端口 -> 等待安装 -> 2 查看链接 -> 0 退出"
               echo "----------------------------------------"
-              /root/install_hy2.expect
+
+              {
+                sleep 3
+                echo "1"
+
+                # 等待脚本进入端口选择
+                sleep 10
+
+                # 回车，选择随机端口
+                echo ""
+
+                # 留足安装时间，15分钟
+                sleep 900
+
+                # 查看节点链接
+                echo "2"
+
+                sleep 10
+
+                # 退出
+                echo "0"
+              } | script -qfec "bash /root/hy2.sh" /root/hy2_install.log
+
               echo "----------------------------------------"
-              echo "Hy2 安装步骤结束"
-
-              echo "安装后额外等待 30 秒，给服务启动和配置生成留时间..."
-              sleep 30
-
-              echo "生成查看节点链接 expect 脚本..."
-
-              cat > /root/show_hy2_link.expect << "EOF"
-#!/usr/bin/expect -f
-set timeout 600
-log_file -a /root/hy2_show_link.log
-
-set sent_show 0
-
-spawn bash /root/hy2.sh
-
-expect {
-    -re {请输入数字选择.*$$0-5$$.*:} {
-        if {$sent_show == 0} {
-            send "2\r"
-            set sent_show 1
-        } else {
-            send "0\r"
-        }
-        exp_continue
-    }
-
-    -re {按任意键返回主菜单|任意键} {
-        send "\r"
-        exp_continue
-    }
-
-    timeout {
-        puts "查看 Hy2 节点链接等待超时，继续后续提取日志。"
-        exit 0
-    }
-
-    eof {
-        exit 0
-    }
-}
-EOF
-
-              chmod +x /root/show_hy2_link.expect
-
-              echo "开始查看 Hy2 节点链接：输入 2..."
-              echo "----------------------------------------"
-              /root/show_hy2_link.expect
-              echo "----------------------------------------"
-              echo "查看 Hy2 节点链接步骤结束"
-
-              exit 0
+              echo "Hy2 脚本运行结束"
             ' || true
 
           echo ""
           echo "复制 Hy2 日志到 runner..."
 
           docker cp dockerssh:/root/hy2_install.log ./hy2_install_raw.log 2>/dev/null || true
-          docker cp dockerssh:/root/hy2_show_link.log ./hy2_show_link_raw.log 2>/dev/null || true
+          touch hy2_install_raw.log
 
-          touch hy2_install_raw.log hy2_show_link_raw.log
-
-          cat hy2_install_raw.log hy2_show_link_raw.log > hy2_all_raw.log
-          sed -r 's/\x1B\[[0-9;]*[mK]//g' hy2_all_raw.log > hy2_all.log
+          sed -r 's/\x1B\[[0-9;]*[mK]//g' hy2_install_raw.log > hy2_install.log
 
           echo ""
           echo "===== Hy2 日志最后 500 行 ====="
-          tail -n 500 hy2_all.log || true
+          tail -n 500 hy2_install.log || true
 
           echo ""
           echo "===== 尝试提取 Hy2 节点链接 ====="
 
-          grep -Eao '(hy2|hysteria2)://[^[:space:]"<>]+' hy2_all.log | sort -u > hy2_links.txt || true
+          grep -Eao '(hy2|hysteria2)://[^[:space:]"<>]+' hy2_install.log | sort -u > hy2_links.txt || true
 
           echo ""
           echo "===== 从容器 /root 和 /etc 中搜索 Hy2 链接 ====="
@@ -234,23 +152,13 @@ EOF
           if [ ! -s hy2_links.txt ]; then
             echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。"
             echo ""
-            echo "下面列出可能的 Hy2 配置文件："
+            echo "输出可能的配置文件路径："
 
             docker exec dockerssh bash -lc '
               find /root /etc -maxdepth 8 -type f \
                 $$ -iname "*hy2*" -o -iname "*hysteria*" -o -iname "*config*.yaml" -o -iname "*config*.yml" -o -iname "*.json" $$ \
                 -print 2>/dev/null || true
             '
-
-            echo ""
-            echo "下面尝试输出可能的配置文件内容："
-
-            docker exec dockerssh bash -lc '
-              for f in $(find /root /etc -maxdepth 8 -type f $$ -iname "*hy2*" -o -iname "*hysteria*" -o -iname "*config*.yaml" -o -iname "*config*.yml" -o -iname "*.json" $$ 2>/dev/null); do
-                echo "========== $f =========="
-                sed -n "1,200p" "$f" 2>/dev/null || true
-              done
-            ' || true
 
             {
               echo "## Hy2 节点链接"
