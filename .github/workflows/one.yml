@@ -105,7 +105,7 @@ jobs:
               chmod +x /root/hy2.sh
 
               echo "开始运行 Hy2 脚本..."
-              echo "输入顺序：1 -> 回车随机端口 -> 等待安装 -> 2 查看链接 -> 0 退出"
+              echo "输入顺序：1 -> 8443 -> 等待安装 -> 2 查看链接 -> 0 退出"
               echo "----------------------------------------"
 
               {
@@ -117,8 +117,8 @@ jobs:
                 # 等待进入监听端口输入位置
                 sleep 45
 
-                # 回车，选择 10000-65535 随机端口
-                echo ""
+                # 固定监听端口 8443，不使用随机端口
+                echo "8443"
 
                 # 留足安装时间，7分钟
                 sleep 420
@@ -135,10 +135,66 @@ jobs:
               echo "----------------------------------------"
               echo "Hy2 脚本运行结束"
 
-              echo "尝试查找 hysteria 程序和配置文件..."
-              command -v hysteria || true
-              command -v hysteria2 || true
-              find /root /etc /usr/local/bin /usr/bin -maxdepth 8 -iname "*hysteria*" -o -iname "*hy2*" 2>/dev/null || true
+              echo ""
+              echo "尝试手动启动 Hysteria2 服务..."
+
+              SERVICE_FILE=""
+
+              if [ -f /etc/systemd/system/hysteria.service ]; then
+                SERVICE_FILE="/etc/systemd/system/hysteria.service"
+              elif [ -f /lib/systemd/system/hysteria.service ]; then
+                SERVICE_FILE="/lib/systemd/system/hysteria.service"
+              fi
+
+              echo "SERVICE_FILE=$SERVICE_FILE"
+
+              if [ -n "$SERVICE_FILE" ]; then
+                echo "发现 service 文件内容："
+                sed -n "1,120p" "$SERVICE_FILE" || true
+
+                EXEC_CMD="$(grep -E "^ExecStart=" "$SERVICE_FILE" | head -n 1 | sed "s/^ExecStart=//")"
+
+                echo "EXEC_CMD=$EXEC_CMD"
+
+                if [ -n "$EXEC_CMD" ]; then
+                  tmux kill-session -t hy2 2>/dev/null || true
+                  tmux new-session -d -s hy2 "$EXEC_CMD"
+                  echo "已通过 tmux 启动 Hy2：$EXEC_CMD"
+                else
+                  echo "没有从 service 文件中提取到 ExecStart"
+                fi
+              else
+                echo "没有找到 hysteria.service，尝试自动查找二进制和配置文件..."
+
+                HY_BIN="$(command -v hysteria 2>/dev/null || command -v hysteria2 2>/dev/null || find /usr/local/bin /usr/bin /root -type f -iname "hysteria*" 2>/dev/null | head -n 1)"
+                HY_CFG="$(find /etc /root -maxdepth 8 -type f $$ -iname "*.yaml" -o -iname "*.yml" -o -iname "*.json" $$ 2>/dev/null | grep -Ei "hysteria|hy2|config" | head -n 1)"
+
+                echo "HY_BIN=$HY_BIN"
+                echo "HY_CFG=$HY_CFG"
+
+                if [ -n "$HY_BIN" ] && [ -n "$HY_CFG" ]; then
+                  chmod +x "$HY_BIN" 2>/dev/null || true
+                  tmux kill-session -t hy2 2>/dev/null || true
+                  tmux new-session -d -s hy2 "$HY_BIN server -c $HY_CFG"
+                  echo "已通过 tmux 启动 Hy2：$HY_BIN server -c $HY_CFG"
+                else
+                  echo "没有找到 hysteria 程序或配置文件"
+                fi
+              fi
+
+              sleep 5
+
+              echo ""
+              echo "检查 Hy2 进程："
+              ps aux | grep -i hysteria | grep -v grep || true
+
+              echo ""
+              echo "检查 8443 端口监听："
+              ss -lunpt | grep 8443 || true
+
+              echo ""
+              echo "tmux 会话列表："
+              tmux ls || true
             ' || true
 
           echo ""
