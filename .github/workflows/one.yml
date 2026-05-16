@@ -69,10 +69,12 @@ jobs:
               ca-certificates \
               util-linux \
               iproute2 \
-              lsof
+              lsof \
+              expect
           '
 
       - name: Install Hy2 in Docker and output node link
+        timeout-minutes: 60
         run: |
           set -e
 
@@ -90,37 +92,110 @@ jobs:
               curl -fsSL https://raw.githubusercontent.com/a88wyzz/Alpine-Debian-Ubuntu-Hy2/main/hy2.sh -o /root/hy2.sh
               chmod +x /root/hy2.sh
 
-              echo "开始运行 Hy2 脚本，并自动输入 1、1..."
+              echo "生成 expect 自动安装脚本..."
+
+              cat > /root/install_hy2.expect << "EOF"
+#!/usr/bin/expect -f
+set timeout 1800
+log_file -a /root/hy2_install.log
+
+set sent_install 0
+set sent_port 0
+
+spawn bash /root/hy2.sh
+
+expect {
+    -re {请输入数字选择.*$$0-5$$.*:} {
+        if {$sent_install == 0} {
+            send "1\r"
+            set sent_install 1
+        } else {
+            send "0\r"
+        }
+        exp_continue
+    }
+
+    -re {随机端口|回车.*随机|直接回车|默认端口|请输入.*端口|监听端口} {
+        if {$sent_port == 0} {
+            send "\r"
+            set sent_port 1
+        }
+        exp_continue
+    }
+
+    -re {按任意键返回主菜单|任意键} {
+        send "\r"
+        exp_continue
+    }
+
+    timeout {
+        puts "Hy2 安装等待超时，继续后续提取日志。"
+        exit 0
+    }
+
+    eof {
+        exit 0
+    }
+}
+EOF
+
+              chmod +x /root/install_hy2.expect
+
+              echo "开始安装 Hy2：输入 1，然后安装过程中遇到随机端口自动回车..."
               echo "----------------------------------------"
-
-            
-              # 1 = 安装 Hysteria2
-              # 1 = 安装过程中的第一个选项
-              printf "n1\n1\n" | script -qfec "bash /root/hy2.sh" /root/hy2_install.log
-
+              /root/install_hy2.expect
               echo "----------------------------------------"
-              echo "Hy2 脚本第一次运行结束"
-              exit 0
-            ' || true
+              echo "Hy2 安装步骤结束"
 
-          echo ""
-          echo "等待 Hy2 安装完成后，再尝试执行菜单 2 查看节点链接..."
-          sleep 5
+              echo "安装后额外等待 30 秒，给服务启动和配置生成留时间..."
+              sleep 30
 
-          docker exec -i \
-            -e TERM=xterm \
-            dockerssh bash -lc '
-              set +e
-              cd /root
-              export TERM=xterm
+              echo "生成查看节点链接 expect 脚本..."
 
-              echo "第二次运行 Hy2 脚本，输入 2 查看节点链接..."
+              cat > /root/show_hy2_link.expect << "EOF"
+#!/usr/bin/expect -f
+set timeout 600
+log_file -a /root/hy2_show_link.log
+
+set sent_show 0
+
+spawn bash /root/hy2.sh
+
+expect {
+    -re {请输入数字选择.*$$0-5$$.*:} {
+        if {$sent_show == 0} {
+            send "2\r"
+            set sent_show 1
+        } else {
+            send "0\r"
+        }
+        exp_continue
+    }
+
+    -re {按任意键返回主菜单|任意键} {
+        send "\r"
+        exp_continue
+    }
+
+    timeout {
+        puts "查看 Hy2 节点链接等待超时，继续后续提取日志。"
+        exit 0
+    }
+
+    eof {
+        exit 0
+    }
+}
+EOF
+
+              chmod +x /root/show_hy2_link.expect
+
+              echo "开始查看 Hy2 节点链接：输入 2..."
               echo "----------------------------------------"
-
-              printf "2\n" | script -qfec "bash /root/hy2.sh" /root/hy2_show_link.log
-
+              /root/show_hy2_link.expect
               echo "----------------------------------------"
-              echo "Hy2 查看链接步骤结束"
+              echo "查看 Hy2 节点链接步骤结束"
+
               exit 0
             ' || true
 
@@ -136,8 +211,8 @@ jobs:
           sed -r 's/\x1B\[[0-9;]*[mK]//g' hy2_all_raw.log > hy2_all.log
 
           echo ""
-          echo "===== Hy2 日志最后 300 行 ====="
-          tail -n 300 hy2_all.log || true
+          echo "===== Hy2 日志最后 500 行 ====="
+          tail -n 500 hy2_all.log || true
 
           echo ""
           echo "===== 尝试提取 Hy2 节点链接 ====="
@@ -159,313 +234,30 @@ jobs:
           if [ ! -s hy2_links.txt ]; then
             echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。"
             echo ""
-            echo "可能还需要继续补输入项，比如端口、密码、证书方式等。"
-            echo "下面列出可能的配置文件："
+            echo "下面列出可能的 Hy2 配置文件："
 
             docker exec dockerssh bash -lc '
-              find /root /etc -maxdepth 6 -type f \
+              find /root /etc -maxdepth 8 -type f \
                 $$ -iname "*hy2*" -o -iname "*hysteria*" -o -iname "*config*.yaml" -o -iname "*config*.yml" -o -iname "*.json" $$ \
                 -print 2>/dev/null || true
             '
 
-            {
-              echo "## Hy2 节点链接"
-              echo ""
-              echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。"
-              echo ""
-              echo "请查看 Actions 日志里的 Hy2 日志最后 300 行。"
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "识别到的 Hy2 节点链接："
-            cat hy2_links.txt
-
-            {
-              echo "## Hy2 节点链接"
-              echo ""
-              echo '```'
-              cat hy2_links.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: AUTO RUN with tmux FULL
-        run: |
-          docker exec dockerssh bash -lc "tmux has-session -t auto 2>/dev/null || tmux new-session -d -s auto 'cd /root; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh -O ww12345.sh && bash ww12345.sh; wget https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader && chmod +x OneDriveUploader; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh; for i in {1..3}; do bash oneupalways2.sh; done'"
-
-      - name: Keep alive
-        run: |
-          echo "保持运行 2 小时..."
-          sleep 7200
-
-      - name: Download and start ngrok
-        run: |
-          curl -L https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz -o ngrok.tgz
-          tar -xzf ngrok.tgz
-          chmod +x ngrok
-
-          ./ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-
-          ./ngrok tcp 2222 > ngrok.log 2>&1 &
-          sleep 15
-
-          echo "Ngrok SSH TCP 地址："
-          NGROK_URL="$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')"
-          echo "$NGROK_URL"
-
-          {
-            echo "## Ngrok SSH 地址"
             echo ""
-            echo '```'
-            echo "$NGROK_URL"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Prepare container for tmux and Hy2
-        run: |
-          docker exec dockerssh bash -lc '
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y \
-              wget \
-              curl \
-              tmux \
-              grep \
-              sed \
-              ca-certificates \
-              util-linux \
-              iproute2 \
-              lsof
-          '
-
-      - name: Install Hy2 in Docker and output node link
-        run: |
-          set -e
-
-          echo "开始在 Docker 容器中运行 Hy2 脚本..."
-
-          docker exec -i \
-            -e TERM=xterm \
-            -e DEBIAN_FRONTEND=noninteractive \
-            dockerssh bash -lc '
-              set +e
-              cd /root
-              export TERM=xterm
-
-              echo "下载 Hy2 脚本..."
-              curl -fsSL https://raw.githubusercontent.com/a88wyzz/Alpine-Debian-Ubuntu-Hy2/main/hy2.sh -o /root/hy2.sh
-              chmod +x /root/hy2.sh
-
-              echo "开始运行 Hy2 脚本，并自动输入 y、1、2..."
-              echo "----------------------------------------"
-
-              # y = 确认
-              # 1 = 安装 Hysteria2
-              # 2 = 查看配置节点链接
-              printf "y\n1\n2\n" | script -qfec "bash /root/hy2.sh" /root/hy2_install.log
-
-              echo "----------------------------------------"
-              echo "Hy2 脚本运行结束"
-              exit 0
-            ' || true
-
-          echo ""
-          echo "复制 Hy2 安装日志到 runner..."
-          docker cp dockerssh:/root/hy2_install.log ./hy2_install_raw.log 2>/dev/null || true
-
-          if [ -f hy2_install_raw.log ]; then
-            sed -r 's/\x1B\[[0-9;]*[mK]//g' hy2_install_raw.log > hy2_install.log
-          else
-            touch hy2_install.log
-          fi
-
-          echo ""
-          echo "===== Hy2 安装日志最后 300 行 ====="
-          tail -n 300 hy2_install.log || true
-
-          echo ""
-          echo "===== 尝试从安装日志中提取 Hy2 节点链接 ====="
-
-          grep -Eao '(hy2|hysteria2)://[^[:space:]"<>]+' hy2_install.log | sort -u > hy2_links.txt || true
-
-          echo ""
-          echo "===== 尝试从容器 /root 和 /etc 中搜索 Hy2 节点链接 ====="
-
-          docker exec dockerssh bash -lc '
-            grep -RaoE "(hy2|hysteria2)://[^[:space:]\"<>]+" /root /etc 2>/dev/null || true
-          ' | sort -u >> hy2_links.txt || true
-
-          sort -u hy2_links.txt -o hy2_links.txt || true
-
-          echo ""
-          echo "===== Hy2 链接提取结果 ====="
-
-          if [ ! -s hy2_links.txt ]; then
-            echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。"
-            echo ""
-            echo "可能原因："
-            echo "1. 安装选项 1 后还有其他输入项，比如端口、密码、域名。"
-            echo "2. 脚本安装后没有自动进入选项 2。"
-            echo "3. 脚本生成的是配置文件，不直接输出分享链接。"
-            echo ""
-            echo "下面列出可能的 Hy2 配置文件："
+            echo "下面尝试输出可能的配置文件内容："
 
             docker exec dockerssh bash -lc '
-              find /root /etc -maxdepth 6 -type f \
-                $$ -iname "*hy2*" -o -iname "*hysteria*" -o -iname "*config*.yaml" -o -iname "*config*.yml" -o -iname "*.json" $$ \
-                -print 2>/dev/null || true
-            '
-
-            {
-              echo "## Hy2 节点链接"
-              echo ""
-              echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。"
-              echo ""
-              echo "请查看 Actions 日志里的 Hy2 安装日志最后 300 行。"
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "识别到的 Hy2 节点链接："
-            cat hy2_links.txt
-
-            {
-              echo "## Hy2 节点链接"
-              echo ""
-              echo '```'
-              cat hy2_links.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: AUTO RUN with tmux FULL
-        run: |
-          docker exec dockerssh bash -lc "tmux has-session -t auto 2>/dev/null || tmux new-session -d -s auto 'cd /root; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh -O ww12345.sh && bash ww12345.sh; wget https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader && chmod +x OneDriveUploader; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh; for i in {1..3}; do bash oneupalways2.sh; done'"
-
-      - name: Keep alive
-        run: |
-          echo "保持运行 2 小时..."
-          sleep 7200
-
-      - name: Download and start ngrok
-        run: |
-          curl -L https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz -o ngrok.tgz
-          tar -xzf ngrok.tgz
-          chmod +x ngrok
-
-          ./ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
-
-          ./ngrok tcp 2222 > ngrok.log 2>&1 &
-          sleep 15
-
-          echo "Ngrok SSH TCP 地址："
-          NGROK_URL="$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')"
-          echo "$NGROK_URL"
-
-          {
-            echo "## Ngrok SSH 地址"
-            echo ""
-            echo '```'
-            echo "$NGROK_URL"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Prepare container for tmux and Hy2
-        run: |
-          docker exec dockerssh bash -lc '
-            apt-get update
-            DEBIAN_FRONTEND=noninteractive apt-get install -y \
-              wget \
-              curl \
-              tmux \
-              grep \
-              sed \
-              ca-certificates \
-              util-linux \
-              iproute2 \
-              lsof
-          '
-
-      - name: Install Hy2 in Docker and output node link
-        run: |
-          set -e
-
-          echo "开始在 Docker 容器中运行 Hy2 脚本..."
-
-          docker exec -i \
-            -e TERM=xterm \
-            -e DEBIAN_FRONTEND=noninteractive \
-            dockerssh bash -lc '
-              set +e
-              cd /root
-              export TERM=xterm
-
-              echo "下载 Hy2 脚本..."
-              curl -fsSL https://raw.githubusercontent.com/a88wyzz/Alpine-Debian-Ubuntu-Hy2/main/hy2.sh -o /root/hy2.sh
-              chmod +x /root/hy2.sh
-
-              echo "开始运行 Hy2 脚本，并自动输入 y..."
-              echo "----------------------------------------"
-
-              # 使用 script 模拟 TTY，解决 TERM environment variable not set 等问题
-              # 这里自动输入一次 y
-              printf "y\n" | script -qfec "bash /root/hy2.sh" /root/hy2_install.log
-
-              echo "----------------------------------------"
-              echo "Hy2 脚本运行结束"
-              exit 0
+              for f in $(find /root /etc -maxdepth 8 -type f $$ -iname "*hy2*" -o -iname "*hysteria*" -o -iname "*config*.yaml" -o -iname "*config*.yml" -o -iname "*.json" $$ 2>/dev/null); do
+                echo "========== $f =========="
+                sed -n "1,200p" "$f" 2>/dev/null || true
+              done
             ' || true
 
-          echo ""
-          echo "复制 Hy2 安装日志到 runner..."
-          docker cp dockerssh:/root/hy2_install.log ./hy2_install_raw.log 2>/dev/null || true
-
-          if [ -f hy2_install_raw.log ]; then
-            sed -r 's/\x1B\[[0-9;]*[mK]//g' hy2_install_raw.log > hy2_install.log
-          else
-            touch hy2_install.log
-          fi
-
-          echo ""
-          echo "===== Hy2 安装日志最后 200 行 ====="
-          tail -n 200 hy2_install.log || true
-
-          echo ""
-          echo "===== 尝试从安装日志中提取 Hy2 节点链接 ====="
-
-          grep -Eao '(hy2|hysteria2)://[^[:space:]"<>]+' hy2_install.log | sort -u > hy2_links.txt || true
-
-          echo ""
-          echo "===== 尝试从容器 /root 和 /etc 中搜索 Hy2 节点链接 ====="
-
-          docker exec dockerssh bash -lc '
-            grep -RaoE "(hy2|hysteria2)://[^[:space:]\"<>]+" /root /etc 2>/dev/null || true
-          ' | sort -u >> hy2_links.txt || true
-
-          sort -u hy2_links.txt -o hy2_links.txt || true
-
-          echo ""
-          echo "===== Hy2 链接提取结果 ====="
-
-          if [ ! -s hy2_links.txt ]; then
-            echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。"
-            echo ""
-            echo "可能原因："
-            echo "1. 这个脚本不只是输入 y，还需要继续输入端口、密码、域名等信息。"
-            echo "2. 脚本没有直接输出分享链接，只生成了配置文件。"
-            echo "3. Hy2 默认使用 UDP，ngrok tcp 不能转发 UDP。"
-            echo "4. GitHub Actions 环境不适合直接作为 Hy2 服务端长期运行。"
-            echo ""
-            echo "下面列出可能的 Hy2 配置文件："
-
-            docker exec dockerssh bash -lc '
-              find /root /etc -maxdepth 5 -type f \
-                $$ -iname "*hy2*" -o -iname "*hysteria*" -o -iname "*config*.yaml" -o -iname "*config*.yml" $$ \
-                -print 2>/dev/null || true
-            '
-
             {
               echo "## Hy2 节点链接"
               echo ""
               echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。"
               echo ""
-              echo "请查看 Actions 日志里的 Hy2 安装日志最后 200 行。"
+              echo "请查看 Actions 日志里的 Hy2 日志最后 500 行。"
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "识别到的 Hy2 节点链接："
@@ -476,15 +268,4 @@ jobs:
               echo ""
               echo '```'
               cat hy2_links.txt
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: AUTO RUN with tmux FULL
-        run: |
-          docker exec dockerssh bash -lc "tmux has-session -t auto 2>/dev/null || tmux new-session -d -s auto 'cd /root; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh -O ww12345.sh && bash ww12345.sh; wget https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader && chmod +x OneDriveUploader; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh; for i in {1..3}; do bash oneupalways2.sh; done'"
-
-      - name: Keep alive
-        run: |
-          echo "保持运行 2 小时..."
-          sleep 7200
+              echo
