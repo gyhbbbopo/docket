@@ -69,7 +69,20 @@ jobs:
               ca-certificates \
               util-linux \
               iproute2 \
-              lsof
+              lsof \
+              procps
+
+            # Docker 容器没有 systemd，这里创建假的 systemctl，避免安装脚本中断
+            cat > /usr/local/bin/systemctl << "EOF"
+#!/bin/sh
+echo "[fake systemctl] $@" >&2
+exit 0
+EOF
+            chmod +x /usr/local/bin/systemctl
+
+            echo "检查 systemctl："
+            which systemctl
+            systemctl status test || true
           '
 
       - name: Install Hy2 in Docker and output node link
@@ -85,6 +98,7 @@ jobs:
             dockerssh bash -lc '
               cd /root
               export TERM=xterm
+              export PATH="/usr/local/bin:$PATH"
 
               echo "下载 Hy2 脚本..."
               curl -fsSL https://raw.githubusercontent.com/a88wyzz/Alpine-Debian-Ubuntu-Hy2/main/hy2.sh -o /root/hy2.sh
@@ -96,28 +110,47 @@ jobs:
 
               {
                 sleep 3
+
+                # 选择 [1] 安装 Hysteria2
                 echo "1"
 
-                # 等待脚本进入端口选择
+                # 等待进入监听端口输入位置
                 sleep 10
 
-                # 回车，选择随机端口
+                # 直接回车，选择 10000-65535 随机端口
                 echo ""
 
-                # 留足安装时间，15分钟
-                sleep 900
+                # 留足安装时间，5分钟
+                sleep 300
 
-                # 查看节点链接
+                # 查看配置节点链接
                 echo "2"
 
-                sleep 10
+                sleep 15
 
-                # 退出
+                # 退出脚本
                 echo "0"
               } | script -qfec "bash /root/hy2.sh" /root/hy2_install.log
 
               echo "----------------------------------------"
               echo "Hy2 脚本运行结束"
+
+              echo ""
+              echo "尝试手动启动 hysteria 服务..."
+
+              HY_BIN="$(command -v hysteria 2>/dev/null || command -v hysteria2 2>/dev/null || find /usr/local/bin /usr/bin /root -type f $$ -name hysteria -o -name hysteria2 -o -name \"hysteria*\" $$ 2>/dev/null | head -n 1)"
+              HY_CFG="$(find /etc /root -maxdepth 8 -type f $$ -iname \"*.yaml\" -o -iname \"*.yml\" -o -iname \"*.json\" $$ 2>/dev/null | grep -Ei \"hysteria|hy2|config\" | head -n 1)"
+
+              echo "HY_BIN=$HY_BIN"
+              echo "HY_CFG=$HY_CFG"
+
+              if [ -n "$HY_BIN" ] && [ -n "$HY_CFG" ]; then
+                chmod +x "$HY_BIN" 2>/dev/null || true
+                tmux has-session -t hy2 2>/dev/null || tmux new-session -d -s hy2 "$HY_BIN server -c $HY_CFG"
+                echo "已尝试在 tmux hy2 中启动：$HY_BIN server -c $HY_CFG"
+              else
+                echo "未找到 hysteria 二进制或配置文件，跳过手动启动。"
+              fi
             ' || true
 
           echo ""
