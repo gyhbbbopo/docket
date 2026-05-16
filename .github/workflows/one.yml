@@ -1,4 +1,4 @@
-name: docker-ngrok-ssh-auto
+name: docker-ngrok-ssh-节点
 
 on:
   schedule:
