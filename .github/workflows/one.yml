@@ -26,14 +26,176 @@ jobs:
             ghcr.io/vevc/ubuntu:25.7.14
 
           sleep 10
-
-          echo "检查容器状态："
           docker ps -a
 
       - name: Install runner tools
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq grep sed
+
+      - name: Download and start ngrok
+        run: |
+          curl -L https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz -o ngrok.tgz
+          tar -xzf ngrok.tgz
+          chmod +x ngrok
+
+          ./ngrok authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+          ./ngrok tcp 2222 > ngrok.log 2>&1 &
+          sleep 15
+
+          echo "Ngrok SSH TCP 地址："
+          NGROK_URL="$(curl -s http://127.0.0.1:4040/api/tunnels | jq -r '.tunnels[0].public_url')"
+          echo "$NGROK_URL"
+
+          {
+            echo "## Ngrok SSH 地址"
+            echo ""
+            echo '```'
+            echo "$NGROK_URL"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Prepare container for tmux and Hy2
+        run: |
+          docker exec dockerssh bash -lc '
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              wget \
+              curl \
+              tmux \
+              grep \
+              sed \
+              ca-certificates \
+              util-linux \
+              iproute2 \
+              lsof
+          '
+
+      - name: Install Hy2 in Docker and output node link
+        run: |
+          set -e
+
+          echo "开始在 Docker 容器中运行 Hy2 脚本..."
+
+          docker exec -i \
+            -e TERM=xterm \
+            -e DEBIAN_FRONTEND=noninteractive \
+            dockerssh bash -lc '
+              set +e
+              cd /root
+              export TERM=xterm
+
+              echo "下载 Hy2 脚本..."
+              curl -fsSL https://raw.githubusercontent.com/a88wyzz/Alpine-Debian-Ubuntu-Hy2/main/hy2.sh -o /root/hy2.sh
+              chmod +x /root/hy2.sh
+
+              echo "开始运行 Hy2 脚本，并自动输入 y、1、1..."
+              echo "----------------------------------------"
+
+              # y = 确认进入脚本
+              # 1 = 安装 Hysteria2
+              # 1 = 安装过程中的第一个选项
+              printf "y\n1\n1\n" | script -qfec "bash /root/hy2.sh" /root/hy2_install.log
+
+              echo "----------------------------------------"
+              echo "Hy2 脚本第一次运行结束"
+              exit 0
+            ' || true
+
+          echo ""
+          echo "等待 Hy2 安装完成后，再尝试执行菜单 2 查看节点链接..."
+          sleep 5
+
+          docker exec -i \
+            -e TERM=xterm \
+            dockerssh bash -lc '
+              set +e
+              cd /root
+              export TERM=xterm
+
+              echo "第二次运行 Hy2 脚本，输入 2 查看节点链接..."
+              echo "----------------------------------------"
+
+              printf "2\n" | script -qfec "bash /root/hy2.sh" /root/hy2_show_link.log
+
+              echo "----------------------------------------"
+              echo "Hy2 查看链接步骤结束"
+              exit 0
+            ' || true
+
+          echo ""
+          echo "复制 Hy2 日志到 runner..."
+
+          docker cp dockerssh:/root/hy2_install.log ./hy2_install_raw.log 2>/dev/null || true
+          docker cp dockerssh:/root/hy2_show_link.log ./hy2_show_link_raw.log 2>/dev/null || true
+
+          touch hy2_install_raw.log hy2_show_link_raw.log
+
+          cat hy2_install_raw.log hy2_show_link_raw.log > hy2_all_raw.log
+          sed -r 's/\x1B\[[0-9;]*[mK]//g' hy2_all_raw.log > hy2_all.log
+
+          echo ""
+          echo "===== Hy2 日志最后 300 行 ====="
+          tail -n 300 hy2_all.log || true
+
+          echo ""
+          echo "===== 尝试提取 Hy2 节点链接 ====="
+
+          grep -Eao '(hy2|hysteria2)://[^[:space:]"<>]+' hy2_all.log | sort -u > hy2_links.txt || true
+
+          echo ""
+          echo "===== 从容器 /root 和 /etc 中搜索 Hy2 链接 ====="
+
+          docker exec dockerssh bash -lc '
+            grep -RaoE "(hy2|hysteria2)://[^[:space:]\"<>]+" /root /etc 2>/dev/null || true
+          ' | sort -u >> hy2_links.txt || true
+
+          sort -u hy2_links.txt -o hy2_links.txt || true
+
+          echo ""
+          echo "===== Hy2 链接提取结果 ====="
+
+          if [ ! -s hy2_links.txt ]; then
+            echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。"
+            echo ""
+            echo "可能还需要继续补输入项，比如端口、密码、证书方式等。"
+            echo "下面列出可能的配置文件："
+
+            docker exec dockerssh bash -lc '
+              find /root /etc -maxdepth 6 -type f \
+                $$ -iname "*hy2*" -o -iname "*hysteria*" -o -iname "*config*.yaml" -o -iname "*config*.yml" -o -iname "*.json" $$ \
+                -print 2>/dev/null || true
+            '
+
+            {
+              echo "## Hy2 节点链接"
+              echo ""
+              echo "没有自动识别到 hy2:// 或 hysteria2:// 链接。"
+              echo ""
+              echo "请查看 Actions 日志里的 Hy2 日志最后 300 行。"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "识别到的 Hy2 节点链接："
+            cat hy2_links.txt
+
+            {
+              echo "## Hy2 节点链接"
+              echo ""
+              echo '```'
+              cat hy2_links.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: AUTO RUN with tmux FULL
+        run: |
+          docker exec dockerssh bash -lc "tmux has-session -t auto 2>/dev/null || tmux new-session -d -s auto 'cd /root; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/ww12345.sh -O ww12345.sh && bash ww12345.sh; wget https://raw.githubusercontent.com/MoeClub/OneList/master/OneDriveUploader/amd64/linux/OneDriveUploader && chmod +x OneDriveUploader; wget https://raw.githubusercontent.com/yghhbbuy/vvvioui/refs/heads/main/.github/workflows/oneupalways2.sh; for i in {1..3}; do bash oneupalways2.sh; done'"
+
+      - name: Keep alive
+        run: |
+          echo "保持运行 2 小时..."
+          sleep 7200
 
       - name: Download and start ngrok
         run: |
