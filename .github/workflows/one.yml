@@ -93,10 +93,10 @@ jobs:
               echo "开始运行 Hy2 脚本，并自动输入 1、1..."
               echo "----------------------------------------"
 
-              # y = 确认进入脚本
+            
               # 1 = 安装 Hysteria2
               # 1 = 安装过程中的第一个选项
-              printf "y\n1\n1\n" | script -qfec "bash /root/hy2.sh" /root/hy2_install.log
+              printf "n1\n1\n" | script -qfec "bash /root/hy2.sh" /root/hy2_install.log
 
               echo "----------------------------------------"
               echo "Hy2 脚本第一次运行结束"
